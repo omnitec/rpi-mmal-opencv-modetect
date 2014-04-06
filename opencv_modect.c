@@ -182,10 +182,24 @@ static void encoder_output_buffer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER
     PORT_USERDATA *userdata = (PORT_USERDATA *) port->userdata;
     MMAL_POOL_T *pool = userdata->encoder_output_pool;
 
-    if(1){//(userdata->motion){   
+    if(1){//(userdata->motion){
+      //write h264 stream to stdout
       mmal_buffer_header_mem_lock(buffer);
       fwrite(buffer->data, 1, buffer->length, stdout);
       mmal_buffer_header_mem_unlock(buffer);
+
+      //write out epoch:framenum      
+      static int frame_count = 0;
+      if(buffer->flags & MMAL_BUFFER_HEADER_FLAG_KEYFRAME)
+      {
+        time_t now = time(NULL);
+        fprintf(stderr, "KEYFRAME (%d:%d)\n", now, frame_count);
+      }      
+      
+      if(buffer->flags & MMAL_BUFFER_HEADER_FLAG_FRAME_END)
+      {
+        frame_count++;
+      }      
     }
 
     mmal_buffer_header_release(buffer);
