@@ -17,5 +17,5 @@ add_executable(mmal_opencv_modect opencv_modect.c)
 
 find_package( OpenCV REQUIRED )
 
-target_link_libraries(mmal_opencv_modect mmal_core mmal_util mmal_vc_client vcos bcm_host cairo ${OpenCV_LIBS} vgfont openmaxil EGL)
+target_link_libraries(mmal_opencv_modect mmal_core mmal_util mmal_vc_client vcos bcm_host cairo ${OpenCV_LIBS} vgfont openmaxil EGL pthread rt m)
 
