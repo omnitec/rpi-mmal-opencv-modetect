@@ -105,7 +105,7 @@ static void camera_video_buffer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T
     frame_count++;
 
     //if(1){
-    if( (CALC_FPS) && (frame_count % (VIDEO_FPS*2) == 0) ){
+    if( (CALC_FPS) && (frame_count % (VIDEO_FPS*2) == 0) ){ //every 2 seconds
       // print framerate every n frame
       clock_gettime(CLOCK_MONOTONIC, &t2);
       float d = (t2.tv_sec + t2.tv_nsec / 1000000000.0) - (t1.tv_sec + t1.tv_nsec / 1000000000.0);
@@ -128,6 +128,29 @@ static void camera_video_buffer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T
       char* oldImageData = userdata->stub->imageData;
       userdata->stub->imageData = buffer->data;
       cvResize(userdata->stub, userdata->small_image, CV_INTER_LINEAR);
+      userdata->stub->imageData = oldImageData;
+      
+      mmal_buffer_header_mem_unlock(buffer);
+
+      if (vcos_semaphore_trywait(&(userdata->complete_semaphore)) != VCOS_SUCCESS) {
+        vcos_semaphore_post(&(userdata->complete_semaphore));
+        frame_post_count++;
+      }
+    }
+
+    //if(1){
+    if( /*(WRITE_STILL) && */(frame_count % (VIDEO_FPS*60) == 0) ){ //every 60 seconds
+      mmal_buffer_header_mem_lock(buffer);
+      
+      //monkey with the imageData pointer, to avoid a memcpy
+      char* oldImageData = userdata->stub->imageData;
+      userdata->stub->imageData = buffer->data;
+
+      //grab a still for export to www
+      fprintf(stderr, "WRITING STILL (%d)\n", frame_count);
+      cvSaveImage("/home/pi/image.tmp.jpg", userdata->stub, 0);
+      rename("/home/pi/image.tmp.jpg", "/home/pi/image.jpg");
+
       userdata->stub->imageData = oldImageData;
       
       mmal_buffer_header_mem_unlock(buffer);
@@ -217,6 +240,24 @@ static void encoder_output_buffer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER
             fprintf(stderr, "[%s]Unable to return a buffer to the video port\n", __func__);
         }
     }
+}
+
+/**
+ * Set the rotation of the image
+ * @param camera Pointer to camera component
+ * @param rotation Degree of rotation (any number, but will be converted to 0,90,180 or 270 only)
+ * @return 0 if successful, non-zero if any parameters out of range
+ */
+int raspicamcontrol_set_rotation(MMAL_COMPONENT_T *camera, int rotation)
+{
+   int ret;
+   int my_rotation = ((rotation % 360 ) / 90) * 90;
+
+   ret = mmal_port_parameter_set_int32(camera->output[0], MMAL_PARAMETER_ROTATION, my_rotation);
+   mmal_port_parameter_set_int32(camera->output[1], MMAL_PARAMETER_ROTATION, my_rotation);
+   mmal_port_parameter_set_int32(camera->output[2], MMAL_PARAMETER_ROTATION, my_rotation);
+
+   return ret;
 }
 
 int setup_camera(PORT_USERDATA *userdata) {
@@ -326,6 +367,8 @@ int setup_camera(PORT_USERDATA *userdata) {
     if (mmal_port_parameter_set_boolean(camera_video_port, MMAL_PARAMETER_CAPTURE, 1) != MMAL_SUCCESS) {
         printf("%s: Failed to start capture\n", __func__);
     }
+
+    raspicamcontrol_set_rotation(camera, 180);
 
     fprintf(stderr, "camera created\n");
     return 0;
@@ -523,7 +566,8 @@ int main(int argc, char** argv) {
 */
          
           int n = cvCountNonZero(sub);
-          if(n>0){
+          //if(n>0){
+          if(n>10){
             userdata.motion = VIDEO_FPS;
             fprintf(stderr, "MOTION DETECTED (%d)\n", n);
           }              
