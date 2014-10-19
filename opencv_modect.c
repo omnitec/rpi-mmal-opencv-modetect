@@ -139,21 +139,64 @@ static void camera_video_buffer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T
     }
 
     //if(1){
-    if( /*(WRITE_STILL) && */(frame_count % (VIDEO_FPS*60) == 0) ){ //every 60 seconds
+    const int X_SECONDS = 60;
+    if( /*(WRITE_STILL) && */(frame_count % (VIDEO_FPS*X_SECONDS) == 0) ){ //every 60 seconds
       mmal_buffer_header_mem_lock(buffer);
-      
+
+      fprintf(stderr, "WRITING STILL (%d)\n", frame_count);
+
+      /*
+      //Just grab the Y and write it out ASAP      
       //monkey with the imageData pointer, to avoid a memcpy
       char* oldImageData = userdata->stub->imageData;
       userdata->stub->imageData = buffer->data;
 
       //grab a still for export to www
-      fprintf(stderr, "WRITING STILL (%d)\n", frame_count);
       cvSaveImage("/home/pi/image.tmp.jpg", userdata->stub, 0);
-      rename("/home/pi/image.tmp.jpg", "/home/pi/image.jpg");
 
       userdata->stub->imageData = oldImageData;
+      */
+      
+      //TODO some of this can probably be collapsed down, but as we only do this once a minute I don't care so much....
+      //so here we're going to attempt a new method to get full YUV
+      unsigned char* pointer = (unsigned char *)(buffer -> data);
+      //get Y U V as CvMat()s
+      CvMat y = cvMat(VIDEO_HEIGHT, VIDEO_WIDTH, CV_8UC1, pointer);
+      pointer = pointer + (VIDEO_HEIGHT*VIDEO_WIDTH);
+      CvMat u = cvMat(VIDEO_HEIGHT/2, VIDEO_WIDTH/2, CV_8UC1, pointer);
+      pointer = pointer + (VIDEO_HEIGHT*VIDEO_WIDTH/4);
+      CvMat v = cvMat(VIDEO_HEIGHT/2, VIDEO_WIDTH/2, CV_8UC1, pointer);
+      //resize U and V and convert Y U and V into IplImages
+      IplImage* uu = cvCreateImage(cvSize(VIDEO_WIDTH, VIDEO_HEIGHT), IPL_DEPTH_8U, 1);
+      cvResize(&u, uu, CV_INTER_LINEAR);
+      IplImage* vv = cvCreateImage(cvSize(VIDEO_WIDTH, VIDEO_HEIGHT), IPL_DEPTH_8U, 1);
+      cvResize(&v, vv, CV_INTER_LINEAR);
+      IplImage* yy = cvCreateImage(cvSize(VIDEO_WIDTH, VIDEO_HEIGHT), IPL_DEPTH_8U, 1);
+      cvResize(&y, yy, CV_INTER_LINEAR);
+      //Create the final, 3 channel image      
+      IplImage* image = cvCreateImage(cvSize(VIDEO_WIDTH, VIDEO_HEIGHT), IPL_DEPTH_8U, 3);
+      CvArr * output[] = { image };      
+      //map Y to the 1st channel
+      int from_to[] = {0, 0};
+      const CvArr * inputy[] = { yy };
+      cvMixChannels(inputy, 1, output, 1, from_to, 1);
+      //map V to the 2nd channel
+      from_to[1] = 1;
+      const CvArr * inputv[] = { vv };
+      cvMixChannels(inputv, 1, output, 1, from_to, 1);
+      //map U to the 3rd channel
+      from_to[1] = 2;
+      const CvArr * inputu[] = { uu };
+      cvMixChannels(inputu, 1, output, 1, from_to, 1);
+      //convert the colour space      
+      cvCvtColor(image, image, CV_YCrCb2BGR);
+      //save the image
+      cvSaveImage("/home/pi/image.tmp.jpg", image, 0);
+   
       
       mmal_buffer_header_mem_unlock(buffer);
+
+      rename("/home/pi/image.tmp.jpg", "/home/pi/image.jpg");
 
       if (vcos_semaphore_trywait(&(userdata->complete_semaphore)) != VCOS_SUCCESS) {
         vcos_semaphore_post(&(userdata->complete_semaphore));
