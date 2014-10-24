@@ -77,7 +77,7 @@ typedef struct {
     IplImage* stub; // stub
 
     char *stillfn; //place to write stills to
-
+    int rotation;    
 } PORT_USERDATA;
 
 int fill_port_buffer(MMAL_PORT_T *port, MMAL_POOL_T *pool) {
@@ -420,7 +420,7 @@ int setup_camera(PORT_USERDATA *userdata) {
         printf("%s: Failed to start capture\n", __func__);
     }
 
-    raspicamcontrol_set_rotation(camera, 180);
+    raspicamcontrol_set_rotation(camera, userdata->rotation);
 
     fprintf(stderr, "camera created\n");
     return 0;
@@ -527,9 +527,11 @@ int main(int argc, char** argv) {
 
     int c;
     opterr = 0;
-    while ((c = getopt (argc, argv, "whsr:")) != -1){
+    while ((c = getopt (argc, argv, "r:whs:")) != -1){
+      fprintf (stderr, "option `%c'.\n", c);
       switch (c) {
         case 'r': //rotation
+          userdata.rotation = atoi(optarg);
           break;
         case 'w':
           break;
@@ -539,7 +541,8 @@ int main(int argc, char** argv) {
           userdata.stillfn = optarg;
           break;
         case '?':
-          if (optopt == 's')
+          if ((optopt == 's') || (optopt == 'r'))
+          //if (optopt == 's')
             fprintf (stderr, "Option -%c requires an argument.\n", optopt);
           else if (isprint (optopt))
             fprintf (stderr, "Unknown option `-%c'.\n", optopt);
