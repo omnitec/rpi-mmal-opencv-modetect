@@ -33,6 +33,9 @@
 #define VIDEO_WIDTH 1280
 #define VIDEO_HEIGHT 720
 
+int still_interval = 60;
+const char* STILL_TMPFN = "/tmp/opencv_modect.jpg";
+
 /*
 //FPS: OpenCV = 14.90, Video = 30.02, ~75% CPU
 #define VIDEO_FPS 30 
@@ -72,6 +75,9 @@ typedef struct {
     
     IplImage* small_image; // resized image
     IplImage* stub; // stub
+
+    char *stillfn; //place to write stills to
+
 } PORT_USERDATA;
 
 int fill_port_buffer(MMAL_PORT_T *port, MMAL_POOL_T *pool) {
@@ -139,13 +145,11 @@ static void camera_video_buffer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T
     }
 
     //if(1){
-    const int X_SECONDS = 60;
-    if( /*(WRITE_STILL) && */(frame_count % (VIDEO_FPS*X_SECONDS) == 0) ){ //every 60 seconds
+    if( (userdata->stillfn) && (frame_count % (VIDEO_FPS * still_interval) == 0) ){ //every 60 seconds
       mmal_buffer_header_mem_lock(buffer);
 
       fprintf(stderr, "WRITING STILL (%d)\n", frame_count);
-
-      /*
+/*
       //Just grab the Y and write it out ASAP      
       //monkey with the imageData pointer, to avoid a memcpy
       char* oldImageData = userdata->stub->imageData;
@@ -155,8 +159,8 @@ static void camera_video_buffer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T
       cvSaveImage("/home/pi/image.tmp.jpg", userdata->stub, 0);
 
       userdata->stub->imageData = oldImageData;
-      */
-      
+*/
+/**/
       //TODO some of this can probably be collapsed down, but as we only do this once a minute I don't care so much....
       //so here we're going to attempt a new method to get full YUV
       unsigned char* pointer = (unsigned char *)(buffer -> data);
@@ -191,12 +195,17 @@ static void camera_video_buffer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T
       //convert the colour space      
       cvCvtColor(image, image, CV_YCrCb2BGR);
       //save the image
-      cvSaveImage("/home/pi/image.tmp.jpg", image, 0);
-   
+      cvSaveImage(STILL_TMPFN, image, 0);
+      //cleanup the images
+      cvReleaseImage(&yy);
+      cvReleaseImage(&vv);
+      cvReleaseImage(&uu);
+      cvReleaseImage(&image);
+/**/ 
       
       mmal_buffer_header_mem_unlock(buffer);
 
-      rename("/home/pi/image.tmp.jpg", "/home/pi/image.jpg");
+      rename(STILL_TMPFN, userdata->stillfn);
 
       if (vcos_semaphore_trywait(&(userdata->complete_semaphore)) != VCOS_SUCCESS) {
         vcos_semaphore_post(&(userdata->complete_semaphore));
@@ -509,14 +518,42 @@ int setup_encoder(PORT_USERDATA *userdata) {
 }
 
 int main(int argc, char** argv) {
-
     PORT_USERDATA userdata;
     MMAL_STATUS_T status;
-
     memset(&userdata, 0, sizeof (PORT_USERDATA));
 
     userdata.width = VIDEO_WIDTH;
     userdata.height = VIDEO_HEIGHT;
+
+    int c;
+    opterr = 0;
+    while ((c = getopt (argc, argv, "whsr:")) != -1){
+      switch (c) {
+        case 'r': //rotation
+          break;
+        case 'w':
+          break;
+        case 'h':
+          break;
+        case 's':
+          userdata.stillfn = optarg;
+          break;
+        case '?':
+          if (optopt == 's')
+            fprintf (stderr, "Option -%c requires an argument.\n", optopt);
+          else if (isprint (optopt))
+            fprintf (stderr, "Unknown option `-%c'.\n", optopt);
+          else
+            fprintf (stderr, "Unknown option character `\\x%x'.\n", optopt);
+          return 1;
+        default:
+          return 1;
+      }
+    }
+
+    if(userdata.stillfn){
+      fprintf(stderr, "Writing still images to %s\n", userdata.stillfn);
+    }
 
     userdata.opencv_width = 320;//userdata.width/4;
     userdata.opencv_height = 240;//userdata.height/4;
