@@ -28,11 +28,18 @@
 
 #define CALC_FPS 1
 
+
+#define DEFAULT_VIDEO_FPS 30 
+#define DEFAULT_VIDEO_WIDTH 1280
+#define DEFAULT_VIDEO_HEIGHT 720
+
+
 //FPS: OpenCV = 15.05, Video = 30.51, ~60% CPU
+/*
 #define VIDEO_FPS 30 
 #define VIDEO_WIDTH 1280
 #define VIDEO_HEIGHT 720
-
+*/
 int still_interval = 60;
 const char* STILL_TMPFN = "/tmp/opencv_modect.jpg";
 
@@ -52,6 +59,8 @@ const char* STILL_TMPFN = "/tmp/opencv_modect.jpg";
 typedef struct {
     int width;
     int height;
+    int fps;
+    
     MMAL_COMPONENT_T *camera;
     MMAL_COMPONENT_T *encoder;
     MMAL_COMPONENT_T *preview;
@@ -111,7 +120,7 @@ static void camera_video_buffer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T
     frame_count++;
 
     //if(1){
-    if( (CALC_FPS) && (frame_count % (VIDEO_FPS*2) == 0) ){ //every 2 seconds
+    if( (CALC_FPS) && (frame_count % (userdata->fps*2) == 0) ){ //every 2 seconds
       // print framerate every n frame
       clock_gettime(CLOCK_MONOTONIC, &t2);
       float d = (t2.tv_sec + t2.tv_nsec / 1000000000.0) - (t1.tv_sec + t1.tv_nsec / 1000000000.0);
@@ -145,7 +154,7 @@ static void camera_video_buffer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T
     }
 
     //if(1){
-    if( (userdata->stillfn) && (frame_count % (VIDEO_FPS * still_interval) == 0) ){ //every 60 seconds
+    if( (userdata->stillfn) && (frame_count % (userdata->fps * still_interval) == 0) ){ //every 60 seconds
       mmal_buffer_header_mem_lock(buffer);
 
       fprintf(stderr, "WRITING STILL (%d)\n", frame_count);
@@ -165,20 +174,20 @@ static void camera_video_buffer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T
       //so here we're going to attempt a new method to get full YUV
       unsigned char* pointer = (unsigned char *)(buffer -> data);
       //get Y U V as CvMat()s
-      CvMat y = cvMat(VIDEO_HEIGHT, VIDEO_WIDTH, CV_8UC1, pointer);
-      pointer = pointer + (VIDEO_HEIGHT*VIDEO_WIDTH);
-      CvMat u = cvMat(VIDEO_HEIGHT/2, VIDEO_WIDTH/2, CV_8UC1, pointer);
-      pointer = pointer + (VIDEO_HEIGHT*VIDEO_WIDTH/4);
-      CvMat v = cvMat(VIDEO_HEIGHT/2, VIDEO_WIDTH/2, CV_8UC1, pointer);
+      CvMat y = cvMat(userdata->height, userdata->width, CV_8UC1, pointer);
+      pointer = pointer + (userdata->height*userdata->width);
+      CvMat u = cvMat(userdata->height/2, userdata->width/2, CV_8UC1, pointer);
+      pointer = pointer + (userdata->height*userdata->width/4);
+      CvMat v = cvMat(userdata->height/2, userdata->width/2, CV_8UC1, pointer);
       //resize U and V and convert Y U and V into IplImages
-      IplImage* uu = cvCreateImage(cvSize(VIDEO_WIDTH, VIDEO_HEIGHT), IPL_DEPTH_8U, 1);
+      IplImage* uu = cvCreateImage(cvSize(userdata->width, userdata->height), IPL_DEPTH_8U, 1);
       cvResize(&u, uu, CV_INTER_LINEAR);
-      IplImage* vv = cvCreateImage(cvSize(VIDEO_WIDTH, VIDEO_HEIGHT), IPL_DEPTH_8U, 1);
+      IplImage* vv = cvCreateImage(cvSize(userdata->width, userdata->height), IPL_DEPTH_8U, 1);
       cvResize(&v, vv, CV_INTER_LINEAR);
-      IplImage* yy = cvCreateImage(cvSize(VIDEO_WIDTH, VIDEO_HEIGHT), IPL_DEPTH_8U, 1);
+      IplImage* yy = cvCreateImage(cvSize(userdata->width, userdata->height), IPL_DEPTH_8U, 1);
       cvResize(&y, yy, CV_INTER_LINEAR);
       //Create the final, 3 channel image      
-      IplImage* image = cvCreateImage(cvSize(VIDEO_WIDTH, VIDEO_HEIGHT), IPL_DEPTH_8U, 3);
+      IplImage* image = cvCreateImage(cvSize(userdata->width, userdata->height), IPL_DEPTH_8U, 3);
       CvArr * output[] = { image };      
       //map Y to the 1st channel
       int from_to[] = {0, 0};
@@ -312,6 +321,7 @@ int raspicamcontrol_set_rotation(MMAL_COMPONENT_T *camera, int rotation)
    return ret;
 }
 
+//TODO remove the preview port
 int setup_camera(PORT_USERDATA *userdata) {
     MMAL_STATUS_T status;
     MMAL_COMPONENT_T *camera = 0;
@@ -336,12 +346,12 @@ int setup_camera(PORT_USERDATA *userdata) {
     {
         MMAL_PARAMETER_CAMERA_CONFIG_T cam_config = {
             { MMAL_PARAMETER_CAMERA_CONFIG, sizeof (cam_config)},
-            .max_stills_w = 1280,
-            .max_stills_h = 720,
+            .max_stills_w = userdata->width,
+            .max_stills_h = userdata->height,
             .stills_yuv422 = 0,
             .one_shot_stills = 1,
-            .max_preview_video_w = VIDEO_WIDTH,
-            .max_preview_video_h = VIDEO_HEIGHT,
+            .max_preview_video_w = userdata->width,
+            .max_preview_video_h = userdata->height,
             .num_preview_video_frames = 3,
             .stills_capture_circular_buffer_height = 0,
             .fast_preview_resume = 0,
@@ -352,15 +362,15 @@ int setup_camera(PORT_USERDATA *userdata) {
 
     // Setup camera preview port format 
     format = camera_preview_port->format;
-    //format->encoding = MMAL_ENCODING_I420;//MMAL_ENCODING_OPAQUE;
+    //format->encoding = MMAL_ENCODING_I420;
     format->encoding = MMAL_ENCODING_OPAQUE;
     format->encoding_variant = MMAL_ENCODING_I420;
-    format->es->video.width = VIDEO_WIDTH;
-    format->es->video.height = VIDEO_HEIGHT;
+    format->es->video.width = userdata->width;
+    format->es->video.height = userdata->height;
     format->es->video.crop.x = 0;
     format->es->video.crop.y = 0;
-    format->es->video.crop.width = VIDEO_WIDTH;
-    format->es->video.crop.height = VIDEO_HEIGHT;
+    format->es->video.crop.width = userdata->width;
+    format->es->video.crop.height = userdata->height;
 
     status = mmal_port_format_commit(camera_preview_port);
 
@@ -375,13 +385,13 @@ int setup_camera(PORT_USERDATA *userdata) {
     format = camera_video_port->format;
     format->encoding = MMAL_ENCODING_I420;
     format->encoding_variant = MMAL_ENCODING_I420;
-    format->es->video.width = VIDEO_WIDTH;
-    format->es->video.height = VIDEO_HEIGHT;
+    format->es->video.width = userdata->width;
+    format->es->video.height = userdata->height;
     format->es->video.crop.x = 0;
     format->es->video.crop.y = 0;
-    format->es->video.crop.width = VIDEO_WIDTH;
-    format->es->video.crop.height = VIDEO_HEIGHT;
-    format->es->video.frame_rate.num = VIDEO_FPS;
+    format->es->video.crop.width = userdata->width;
+    format->es->video.crop.height = userdata->height;
+    format->es->video.frame_rate.num = userdata->fps;
     format->es->video.frame_rate.den = 1;
 
     camera_video_port->buffer_num = 2;
@@ -522,20 +532,25 @@ int main(int argc, char** argv) {
     MMAL_STATUS_T status;
     memset(&userdata, 0, sizeof (PORT_USERDATA));
 
-    userdata.width = VIDEO_WIDTH;
-    userdata.height = VIDEO_HEIGHT;
+    userdata.width = DEFAULT_VIDEO_WIDTH;
+    userdata.height = DEFAULT_VIDEO_HEIGHT;
+    userdata.fps = DEFAULT_VIDEO_FPS;    
 
     int c;
     opterr = 0;
-    while ((c = getopt (argc, argv, "r:whs:")) != -1){
-      fprintf (stderr, "option `%c'.\n", c);
+    while ((c = getopt (argc, argv, "r:w:h:f:s:")) != -1){
       switch (c) {
         case 'r': //rotation
           userdata.rotation = atoi(optarg);
           break;
         case 'w':
+          userdata.width = atoi(optarg);
           break;
         case 'h':
+          userdata.height = atoi(optarg);
+          break;
+        case 'f':
+          userdata.height = atoi(optarg);
           break;
         case 's':
           userdata.stillfn = optarg;
@@ -565,7 +580,7 @@ int main(int argc, char** argv) {
 
     fprintf(stderr, "VIDEO_WIDTH : %i\n", userdata.width );
     fprintf(stderr, "VIDEO_HEIGHT: %i\n", userdata.height );
-    fprintf(stderr, "VIDEO_FPS   : %i\n", VIDEO_FPS);
+    fprintf(stderr, "VIDEO_FPS   : %i\n", userdata.fps);
 
     bcm_host_init();
 
@@ -614,7 +629,7 @@ int main(int argc, char** argv) {
 
           opencv_frames++;
           //if (1) {
-          if( (CALC_FPS) && (opencv_frames % (VIDEO_FPS*2) == 0) ){
+          if( (CALC_FPS) && (opencv_frames % (userdata.fps*2) == 0) ){
             clock_gettime(CLOCK_MONOTONIC, &t2);
             float d = (t2.tv_sec + t2.tv_nsec / 1000000000.0) - (t1.tv_sec + t1.tv_nsec / 1000000000.0);
             if (d > 0) {
@@ -651,7 +666,7 @@ int main(int argc, char** argv) {
           int n = cvCountNonZero(sub);
           //if(n>0){
           if(n>10){
-            userdata.motion = VIDEO_FPS;
+            userdata.motion = userdata.fps * 1; //number of seconds to capture after detection
             fprintf(stderr, "MOTION DETECTED (%d)\n", n);
           }              
 
