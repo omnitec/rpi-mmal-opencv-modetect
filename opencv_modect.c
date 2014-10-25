@@ -550,7 +550,7 @@ int main(int argc, char** argv) {
           userdata.height = atoi(optarg);
           break;
         case 'f':
-          userdata.height = atoi(optarg);
+          userdata.fps = atoi(optarg);
           break;
         case 's':
           userdata.stillfn = optarg;
